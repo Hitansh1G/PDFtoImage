@@ -1,121 +1,79 @@
 const express = require('express');
-const PDFParser = require('pdf-parse');
-const fs = require('fs');
-const app = express();
-const uploadDirectory = './uploads';
-const multer = require('multer');
+const { fromPath } = require('pdf2pic');
+const { join } = require('path');
+const fs = require('fs-extra');
+const rimraf = require('rimraf');
 const path = require('path');
-const mammoth = require('mammoth');
-const pdf = require('html-pdf');
-const pdf2pic = require("pdf2pic");
-// import { fromPath } from "pdf2pic";
-import { PdfDocument } from "@ironsoftware/ironpdf";
-import { IronPdfGlobalConfig } from "@ironsoftware/ironpdf";
+const multer = require('multer');
 
 
 
-// Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Multer setup for file upload
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/');
-  },
-  filename: (req, file, cb) => {
-    cb(null, file.originalname);
-  }
-});
-const upload = multer({ storage });
-
-app.get("/api", (req,res)=>{
-    res.json({"users":["user1","user2","user3"]})
-})
-
-
-app.post('/upload', upload.single('file'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
-    const uploadedFile = req.file;
-    const fileName = `${uploadedFile.originalname}`;
-    const filePath = `${uploadDirectory}/${fileName}`;
-    const fileData = fs.readFileSync(filePath, 'utf8');
-    await processFileData(fileData);
-    console.log("1");
-
-    
-
-
-
-    const images = await convertPdfToImages(filePath);
-    console.log("2");
-    const publicPath = path.join(__dirname, 'public');
-    console.log(publicPath)
-
-    // const imageName = `${fileName.split('.').slice(0, -1).join('.')}_1.png`; 
-    // fs.writeFileSync(path.join(publicPath, imageName), images[0]);
-
-    console.log("poiouiyhughfc")
-    res.json({ images });
-    console.log("3");
-  } catch (error) {
-    console.error('An error occurred while processing the file:', error);
-    console.log("1242");
-    res.status(500).json({ error: 'Failed to process the file' });
-  }
-});
-
-
-function processFileData(fileData) {
-  fs.writeFile('output.txt', fileData, (err) => {
-    if (err) {
-      console.error('Error writing file:', err);
-    } else {
-      console.log('File written successfully');
-    }
-  });
-}
-async function convertPdfToImages(pdfFilePath) {
-    console.log("started")
-    const options = {
-      density: 100,
-      saveFilename: "untitled",
-      savePath: "./public",
-      format: "png",
-      width: 600,
-      height: 600
-    };
-   
-    console.log("here")
+const app = express();
+const port = process.env.PORT || 3000;
+const uploadsFolder = './uploads';
+const upload = multer({ dest: uploadsFolder });
+app.post('/upload', upload.single('pdf'), async (req, res) => {
     try {
-        console.log("in try")
+        // Delete existing files in the uploads folder
+        const files = await fs.readdir(uploadsFolder);
+        for (const file of files) {
+            await fs.unlink(join(uploadsFolder, file));
+        }
 
-        const pdfFilePath = path.join(__dirname, "uploads", "Sample.pdf"); 
-        const pageToConvertAsImage = 1;
-      console.log("afterconverter")
-      const convert = pdf2pic.fromPath("./uploads/Sample.pdf", options);
-    //   const convert = fromPath("./uploads/Sample.pdf", baseOptions);
+        // Move the uploaded file into the uploads folder
+        await fs.move(req.file.path, join(uploadsFolder, req.file.originalname));
 
-      console.log("hhhhhhh")
-      console.log(convert)
-      console.log(convert[1]);
-      console.log(convert[0]);
-      console.log(convert[2]);
-    //   console.log(convert.bulk(-1));
-      return convert[1];
-
-    return convert[1];
-    //   const images = await convert.convertBulk(pdfFilePath, -1);
-    //   console.log("here1")
-    //   return images;
+        res.status(200).send('PDF uploaded successfully');
     } catch (error) {
-      console.error('Error converting PDF to images:', error);
-      throw error;
+        console.error('Error uploading PDF:', error);
+        res.status(500).send('Internal Server Error');
     }
-  }
-app.listen(3000, () => {
-    console.log('Server is running on port 3000');
-  });
+});
+app.get('/upload', async (req, res) => {
+    try {
+        console.log("1");
+
+        const files = await fs.readdir(uploadsFolder);
+        console.log("12");
+
+        if (files.length === 0) {
+            return res.status(404).send('No PDF files found in the uploads folder.');
+        }
+        console.log("123");
+
+        const pdfPath = join(uploadsFolder, files[0]);
+
+        console.log("4");
+        const outputDirectory = './output/from-pdf-to-image';
+        console.log("5");
+        rimraf.sync(outputDirectory);
+        console.log("6");
+        await fs.mkdirs(outputDirectory);
+        console.log("7");
+        const convert = fromPath(pdfPath, {
+            width: 2550,
+            height: 3300,
+            density: 330,
+            savePath: outputDirectory
+        });
+
+        await convert(1);
+        console.log("8");
+        const convertedFiles = await fs.readdir(outputDirectory);
+        console.log("9");
+        // const convertedImage = join(outputDirectory, convertedFiles[0]);
+        console.log("10");
+        const convertedImage = path.resolve(join(outputDirectory, convertedFiles[0]));
+
+        res.sendFile(convertedImage);
+        console.log("11");
+    } catch (error) {
+        console.error('Error converting PDF to image:', error);
+        res.status(500).send('Internal Server Error');
+    }
+});
+
+// Start the server
+app.listen(port, () => {
+    console.log(`Server is running on port ${port}`);
+});
